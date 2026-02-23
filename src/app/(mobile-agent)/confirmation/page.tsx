@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useElectionStore } from "@/store/electionStore";
 import { submitVoteTally } from "@/lib/syncEngine";
 import type { VoteSubmission } from "@/lib/types";
@@ -19,6 +19,21 @@ export default function ConfirmationStep() {
         totalRegisteredVoters,
         resetWizard,
     } = useElectionStore();
+
+    const [isOffline, setIsOffline] = useState(false);
+
+    // Track online status client-side only (avoids hydration mismatch)
+    useEffect(() => {
+        setIsOffline(!navigator.onLine);
+        const goOffline = () => setIsOffline(true);
+        const goOnline = () => setIsOffline(false);
+        window.addEventListener("offline", goOffline);
+        window.addEventListener("online", goOnline);
+        return () => {
+            window.removeEventListener("offline", goOffline);
+            window.removeEventListener("online", goOnline);
+        };
+    }, []);
 
     // Auto-submit on mount
     useEffect(() => {
@@ -66,7 +81,7 @@ export default function ConfirmationStep() {
                 <p className="text-slate-500 mb-2">
                     Tally submitted successfully.
                 </p>
-                {!navigator.onLine && (
+                {isOffline && (
                     <p className="text-amber-600 text-sm font-medium">
                         अफलाइन — नेटवर्क मिल्दा स्वतः सिंक हुनेछ।
                     </p>

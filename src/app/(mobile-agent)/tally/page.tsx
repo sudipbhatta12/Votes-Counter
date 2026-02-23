@@ -1,69 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 import CandidateTallyRow from "@/components/tally/CandidateTallyRow";
 import MathEngineFooter from "@/components/tally/MathEngineFooter";
 import { useElectionStore } from "@/store/electionStore";
 
-// Mock candidates — in production, loaded from IndexedDB on mount
-const MOCK_CANDIDATES = [
-    {
-        id: "1",
-        name: "काजी मान कागते",
-        partyName: "नेकपा (एमाले)",
-        electionSymbolUrl: "/election-symbols/नेकपा(एमाले).png",
-        isPinned: true,
-        displayOrder: 1,
-    },
-    {
-        id: "2",
-        name: "निश्कल राई",
-        partyName: "नेपाली काँग्रेस",
-        electionSymbolUrl: "/election-symbols/नेपाली_काँग्रेस.png",
-        isPinned: true,
-        displayOrder: 2,
-    },
-    {
-        id: "3",
-        name: "विमल गदाल",
-        partyName: "राष्ट्रिय स्वतन्त्र पार्टी",
-        electionSymbolUrl: "/election-symbols/राष्ट्रिय_स्वतन्त्र_पार्टी.png",
-        isPinned: true,
-        displayOrder: 3,
-    },
-    {
-        id: "4",
-        name: "नारदमणी साङपाङ्ग",
-        partyName: "नेकपा (माओवादी)",
-        electionSymbolUrl: "/election-symbols/नेपाल_कम्युनिस्ट_पार्टी_(माओवादी).png",
-        isPinned: true,
-        displayOrder: 4,
-    },
-    {
-        id: "5",
-        name: "ज्वाला नेपाल",
-        partyName: "राष्ट्रिय प्रजातन्त्र पार्टी",
-        electionSymbolUrl: "/election-symbols/राष्ट्रिय_प्रजातन्त्र_पार्टी.png",
-        isPinned: true,
-        displayOrder: 5,
-    },
-    {
-        id: "6",
-        name: "रन बहादुर राई",
-        partyName: "नेपाली कम्युनिष्ट पार्टी",
-        electionSymbolUrl: "/election-symbols/नेपाली_कम्युनिष्ट_पार्टी.png",
-        isPinned: false,
-        displayOrder: 6,
-    },
-    {
-        id: "7",
-        name: "तुल्सी केशरी प्रजापति",
-        partyName: "नेपाल मजदुर किसान पार्टी",
-        electionSymbolUrl: "/election-symbols/नेपाल_मजदुर_किसान_पार्टी.png",
-        isPinned: false,
-        displayOrder: 7,
-    },
-];
+interface CandidateItem {
+    id: string;
+    name: string;
+    partyName: string;
+    electionSymbolUrl?: string;
+    symbolImageFile?: string;
+    isPinned: boolean;
+    displayOrder: number;
+}
 
 export default function TallyStep() {
     const {
@@ -72,20 +22,41 @@ export default function TallyStep() {
         candidateVotes,
         totalRegisteredVoters,
         electionType,
+        constituencyId,
         setTotalCastVotes,
         setInvalidVotes,
         setCandidateVote,
         prevStep,
     } = useElectionStore();
 
+    const [candidates, setCandidates] = useState<CandidateItem[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    // Fetch real candidates from API on mount
+    useEffect(() => {
+        if (!constituencyId) {
+            setLoading(false);
+            return;
+        }
+        fetch(`/api/data/candidates?constituencyId=${constituencyId}`)
+            .then((res) => res.json())
+            .then((data) => {
+                if (Array.isArray(data)) {
+                    setCandidates(data);
+                }
+            })
+            .catch((err) => console.warn("Candidate fetch failed:", err))
+            .finally(() => setLoading(false));
+    }, [constituencyId]);
+
     // Sort: pinned first, then by display order
     const sortedCandidates = useMemo(() => {
-        return [...MOCK_CANDIDATES].sort((a, b) => {
+        return [...candidates].sort((a, b) => {
             if (a.isPinned && !b.isPinned) return -1;
             if (!a.isPinned && b.isPinned) return 1;
             return a.displayOrder - b.displayOrder;
         });
-    }, []);
+    }, [candidates]);
 
     // Math engine calculations
     const sumCandidateVotes = useMemo(() => {
@@ -179,18 +150,28 @@ export default function TallyStep() {
                             : "पार्टी मत गणना (Party Tallies)"}
                     </h2>
                 </div>
-                {sortedCandidates.map((candidate) => (
-                    <CandidateTallyRow
-                        key={candidate.id}
-                        candidateId={candidate.id}
-                        name={candidate.name}
-                        partyName={candidate.partyName}
-                        electionSymbolUrl={candidate.electionSymbolUrl}
-                        isPinned={candidate.isPinned}
-                        votes={candidateVotes[candidate.id] || 0}
-                        onVotesChange={setCandidateVote}
-                    />
-                ))}
+                {loading ? (
+                    <div className="flex items-center justify-center py-12">
+                        <p className="text-slate-400 text-sm">Loading candidates...</p>
+                    </div>
+                ) : sortedCandidates.length === 0 ? (
+                    <div className="flex items-center justify-center py-12">
+                        <p className="text-slate-400 text-sm">No candidates found for this constituency</p>
+                    </div>
+                ) : (
+                    sortedCandidates.map((candidate) => (
+                        <CandidateTallyRow
+                            key={candidate.id}
+                            candidateId={candidate.id}
+                            name={candidate.name}
+                            partyName={candidate.partyName}
+                            electionSymbolUrl={candidate.electionSymbolUrl || `/election-symbols/${candidate.partyName.replace(/ /g, '_')}.png`}
+                            isPinned={candidate.isPinned}
+                            votes={candidateVotes[candidate.id] || 0}
+                            onVotesChange={setCandidateVote}
+                        />
+                    ))
+                )}
             </div>
 
             {/* Math Engine Footer */}

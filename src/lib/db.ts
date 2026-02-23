@@ -51,7 +51,7 @@ export interface PendingSubmission {
     createdAt: string;
     retryCount: number;
     lastError?: string;
-    synced: boolean;
+    synced: number; // 0 = not synced, 1 = synced (Dexie can't index booleans)
     syncedAt?: string;
 }
 
@@ -181,7 +181,7 @@ export async function savePendingSubmission(
         imageBase64,
         createdAt: new Date().toISOString(),
         retryCount: 0,
-        synced: false,
+        synced: 0,
     };
     await db.pendingSubmissions.add(entry);
     await db.syncLog.add({
@@ -204,7 +204,7 @@ export async function getUnsyncedSubmissions() {
  */
 export async function markSynced(localId: number) {
     await db.pendingSubmissions.update(localId, {
-        synced: true,
+        synced: 1,
         syncedAt: new Date().toISOString(),
     });
     await db.syncLog.add({

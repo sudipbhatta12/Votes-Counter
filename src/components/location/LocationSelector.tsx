@@ -1,100 +1,24 @@
 "use client";
 
 import { useElectionStore } from "@/store/electionStore";
-import { useState, useEffect } from "react";
-import { getCachedStations, getCachedBooths } from "@/lib/db";
+import { useState, useEffect, useCallback } from "react";
 import type { CachedPollingStation, CachedPollingBooth } from "@/lib/db";
 
 // ============================================================================
 // Location Selector — Cascading bottom-sheet modals
 // Ward → Polling Station → Polling Booth(s)
+// Fetches real data from APIs, falls back to IndexedDB cache
 // ============================================================================
 
-// Mock ward data for demo (in production, comes from IndexedDB)
-const MOCK_WARDS = [
-    { id: "w1", wardNumber: 1, localLevelName: "सूर्योदय नगरपालिका" },
-    { id: "w2", wardNumber: 2, localLevelName: "सूर्योदय नगरपालिका" },
-    { id: "w3", wardNumber: 3, localLevelName: "सूर्योदय नगरपालिका" },
-    { id: "w4", wardNumber: 4, localLevelName: "फाकफोकथुम गाउँपालिका" },
-    { id: "w5", wardNumber: 5, localLevelName: "फाकफोकथुम गाउँपालिका" },
-];
-
-const MOCK_STATIONS: Record<string, CachedPollingStation[]> = {
-    w1: [
-        {
-            id: "s1",
-            name: "श्री जनता मा.वि. छाती तिजथला",
-            wardId: "w1",
-            wardNumber: 1,
-            localLevelName: "सूर्योदय नगरपालिका",
-        },
-    ],
-    w2: [
-        {
-            id: "s2",
-            name: "श्री कालिका मा.वि. बालाचौर भर्ता",
-            wardId: "w2",
-            wardNumber: 2,
-            localLevelName: "सूर्योदय नगरपालिका",
-        },
-    ],
-    w3: [
-        {
-            id: "s3",
-            name: "श्री जनज्योती मा.वि भर्ता",
-            wardId: "w3",
-            wardNumber: 3,
-            localLevelName: "सूर्योदय नगरपालिका",
-        },
-    ],
-};
-
-const MOCK_BOOTHS: Record<string, CachedPollingBooth[]> = {
-    s1: [
-        {
-            id: "b1",
-            boothNumber: "क",
-            totalRegisteredVoters: 450,
-            pollingStationId: "s1",
-            pollingStationName: "श्री जनता मा.वि.",
-        },
-        {
-            id: "b2",
-            boothNumber: "ख",
-            totalRegisteredVoters: 380,
-            pollingStationId: "s1",
-            pollingStationName: "श्री जनता मा.वि.",
-        },
-    ],
-    s2: [
-        {
-            id: "b3",
-            boothNumber: "क",
-            totalRegisteredVoters: 520,
-            pollingStationId: "s2",
-            pollingStationName: "श्री कालिका मा.वि.",
-        },
-        {
-            id: "b4",
-            boothNumber: "ख",
-            totalRegisteredVoters: 410,
-            pollingStationId: "s2",
-            pollingStationName: "श्री कालिका मा.वि.",
-        },
-    ],
-    s3: [
-        {
-            id: "b5",
-            boothNumber: "क",
-            totalRegisteredVoters: 600,
-            pollingStationId: "s3",
-            pollingStationName: "श्री जनज्योती मा.वि.",
-        },
-    ],
-};
+interface WardItem {
+    id: string;
+    wardNumber: number;
+    localLevelName: string;
+}
 
 export default function LocationSelector() {
     const {
+        constituencyId,
         selectedWardId,
         selectedWardLabel,
         selectedStationId,
@@ -113,34 +37,67 @@ export default function LocationSelector() {
     const [activeSheet, setActiveSheet] = useState<
         "ward" | "station" | "booth" | null
     >(null);
+    const [wards, setWards] = useState<WardItem[]>([]);
     const [stations, setStations] = useState<CachedPollingStation[]>([]);
     const [booths, setBooths2] = useState<CachedPollingBooth[]>([]);
+    const [loading, setLoading] = useState(false);
 
-    // Load stations when ward changes
+    // Fetch wards for the agent's constituency on mount
+    useEffect(() => {
+        if (!constituencyId) return;
+        setLoading(true);
+        fetch(`/api/data/wards?constituencyId=${constituencyId}`)
+            .then((res) => res.json())
+            .then((data) => {
+                if (Array.isArray(data)) setWards(data);
+            })
+            .catch((err) => console.warn("Ward fetch failed:", err))
+            .finally(() => setLoading(false));
+    }, [constituencyId]);
+
+    // Fetch stations when ward changes
+    const loadStations = useCallback(async (wardId: string) => {
+        try {
+            const res = await fetch(`/api/data/stations?wardId=${wardId}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    setStations(data);
+                    return;
+                }
+            }
+        } catch {
+            // fall through to constituency-wide fetch
+        }
+        // If ward-specific fetch fails, try to filter from constituency stations
+        if (constituencyId) {
+            try {
+                const res = await fetch(`/api/data/stations?constituencyId=${constituencyId}`);
+                if (res.ok) {
+                    const all: CachedPollingStation[] = await res.json();
+                    setStations(all.filter((s) => s.wardId === wardId));
+                }
+            } catch (err) {
+                console.warn("Station fetch failed:", err);
+            }
+        }
+    }, [constituencyId]);
+
     useEffect(() => {
         if (selectedWardId) {
-            // Try IndexedDB first, fall back to mock
-            getCachedStations(selectedWardId).then((cached) => {
-                if (cached.length > 0) {
-                    setStations(cached);
-                } else {
-                    setStations(MOCK_STATIONS[selectedWardId] || []);
-                }
-            });
+            loadStations(selectedWardId);
         }
-    }, [selectedWardId]);
+    }, [selectedWardId, loadStations]);
 
-    // Load booths when station changes
+    // Fetch booths when station changes
     useEffect(() => {
-        if (selectedStationId) {
-            getCachedBooths(selectedStationId).then((cached) => {
-                if (cached.length > 0) {
-                    setBooths2(cached);
-                } else {
-                    setBooths2(MOCK_BOOTHS[selectedStationId] || []);
-                }
-            });
-        }
+        if (!selectedStationId) return;
+        fetch(`/api/data/booths?stationId=${selectedStationId}`)
+            .then((res) => res.json())
+            .then((data) => {
+                if (Array.isArray(data)) setBooths2(data);
+            })
+            .catch((err) => console.warn("Booth fetch failed:", err));
     }, [selectedStationId]);
 
     const handleBoothToggle = (booth: CachedPollingBooth) => {
@@ -227,8 +184,8 @@ export default function LocationSelector() {
                     onClick={() => selectedWardId && setActiveSheet("station")}
                     disabled={!selectedWardId}
                     className={`w-full touch-btn border-2 text-left px-4 justify-between ${selectedWardId
-                            ? "border-slate-200"
-                            : "border-slate-100 opacity-50"
+                        ? "border-slate-200"
+                        : "border-slate-100 opacity-50"
                         }`}
                 >
                     <div>
@@ -247,8 +204,8 @@ export default function LocationSelector() {
                     onClick={() => selectedStationId && setActiveSheet("booth")}
                     disabled={!selectedStationId}
                     className={`w-full touch-btn border-2 text-left px-4 justify-between ${selectedStationId
-                            ? "border-slate-200"
-                            : "border-slate-100 opacity-50"
+                        ? "border-slate-200"
+                        : "border-slate-100 opacity-50"
                         }`}
                 >
                     <div>
@@ -324,96 +281,113 @@ export default function LocationSelector() {
                                 onClick={() => setActiveSheet(null)}
                                 className="w-10 h-10 flex items-center justify-center text-slate-400 text-2xl"
                             >
-                                ✕
+                                x
                             </button>
                         </div>
 
                         <div className="overflow-y-auto max-h-[calc(70vh-60px)] p-2">
                             {/* Ward List */}
-                            {activeSheet === "ward" &&
-                                MOCK_WARDS.map((ward) => (
-                                    <button
-                                        key={ward.id}
-                                        onClick={() => {
-                                            if (navigator.vibrate) navigator.vibrate(15);
-                                            setWard(
-                                                ward.id,
-                                                `${ward.localLevelName} - वडा ${ward.wardNumber}`
-                                            );
-                                            setActiveSheet("station");
-                                        }}
-                                        className={`w-full text-left px-4 py-4 rounded-xl mb-1 transition-colors ${selectedWardId === ward.id
-                                                ? "bg-blue-50 border-2 border-blue-300"
-                                                : "hover:bg-slate-50 border-2 border-transparent"
-                                            }`}
-                                    >
-                                        <p className="font-bold text-slate-900">
-                                            वडा नं. {ward.wardNumber}
-                                        </p>
-                                        <p className="text-sm text-slate-500">
-                                            {ward.localLevelName}
-                                        </p>
-                                    </button>
-                                ))}
-
-                            {/* Station List */}
-                            {activeSheet === "station" &&
-                                stations.map((station) => (
-                                    <button
-                                        key={station.id}
-                                        onClick={() => {
-                                            if (navigator.vibrate) navigator.vibrate(15);
-                                            setStation(station.id, station.name);
-                                            setActiveSheet("booth");
-                                        }}
-                                        className={`w-full text-left px-4 py-4 rounded-xl mb-1 transition-colors ${selectedStationId === station.id
-                                                ? "bg-blue-50 border-2 border-blue-300"
-                                                : "hover:bg-slate-50 border-2 border-transparent"
-                                            }`}
-                                    >
-                                        <p className="font-bold text-slate-900">{station.name}</p>
-                                        <p className="text-sm text-slate-500">
-                                            वडा {station.wardNumber}
-                                        </p>
-                                    </button>
-                                ))}
-
-                            {/* Booth List */}
-                            {activeSheet === "booth" &&
-                                booths.map((booth) => {
-                                    const isSelected = selectedBoothIds.includes(booth.id);
-                                    return (
+                            {activeSheet === "ward" && (
+                                loading ? (
+                                    <p className="text-center text-slate-400 py-8">Loading wards...</p>
+                                ) : wards.length === 0 ? (
+                                    <p className="text-center text-slate-400 py-8">No wards found for this constituency</p>
+                                ) : (
+                                    wards.map((ward) => (
                                         <button
-                                            key={booth.id}
-                                            onClick={() => handleBoothToggle(booth)}
-                                            className={`w-full text-left px-4 py-4 rounded-xl mb-1 transition-colors flex items-center justify-between ${isSelected
-                                                    ? "bg-blue-50 border-2 border-blue-300"
-                                                    : "hover:bg-slate-50 border-2 border-transparent"
+                                            key={ward.id}
+                                            onClick={() => {
+                                                if (navigator.vibrate) navigator.vibrate(15);
+                                                setWard(
+                                                    ward.id,
+                                                    `${ward.localLevelName} - वडा ${ward.wardNumber}`
+                                                );
+                                                setActiveSheet("station");
+                                            }}
+                                            className={`w-full text-left px-4 py-4 rounded-xl mb-1 transition-colors ${selectedWardId === ward.id
+                                                ? "bg-blue-50 border-2 border-blue-300"
+                                                : "hover:bg-slate-50 border-2 border-transparent"
                                                 }`}
                                         >
-                                            <div>
-                                                <p className="font-bold text-slate-900">
-                                                    मतपेटिका {booth.boothNumber}
-                                                </p>
-                                                <p className="text-sm text-slate-500">
-                                                    दर्ता मतदाता: {booth.totalRegisteredVoters}
-                                                </p>
-                                            </div>
-                                            {isMixedBox && (
-                                                <div
-                                                    className={`w-6 h-6 rounded border-2 flex items-center justify-center ${isSelected
+                                            <p className="font-bold text-slate-900">
+                                                वडा नं. {ward.wardNumber}
+                                            </p>
+                                            <p className="text-sm text-slate-500">
+                                                {ward.localLevelName}
+                                            </p>
+                                        </button>
+                                    ))
+                                )
+                            )}
+
+                            {/* Station List */}
+                            {activeSheet === "station" && (
+                                stations.length === 0 ? (
+                                    <p className="text-center text-slate-400 py-8">Loading stations...</p>
+                                ) : (
+                                    stations.map((station) => (
+                                        <button
+                                            key={station.id}
+                                            onClick={() => {
+                                                if (navigator.vibrate) navigator.vibrate(15);
+                                                setStation(station.id, station.name);
+                                                setActiveSheet("booth");
+                                            }}
+                                            className={`w-full text-left px-4 py-4 rounded-xl mb-1 transition-colors ${selectedStationId === station.id
+                                                ? "bg-blue-50 border-2 border-blue-300"
+                                                : "hover:bg-slate-50 border-2 border-transparent"
+                                                }`}
+                                        >
+                                            <p className="font-bold text-slate-900">{station.name}</p>
+                                            <p className="text-sm text-slate-500">
+                                                वडा {station.wardNumber}
+                                            </p>
+                                        </button>
+                                    ))
+                                )
+                            )}
+
+                            {/* Booth List */}
+                            {activeSheet === "booth" && (
+                                booths.length === 0 ? (
+                                    <p className="text-center text-slate-400 py-8">Loading booths...</p>
+                                ) : (
+                                    booths.map((booth) => {
+                                        const isSelected = selectedBoothIds.includes(booth.id);
+                                        return (
+                                            <button
+                                                key={booth.id}
+                                                onClick={() => handleBoothToggle(booth)}
+                                                className={`w-full text-left px-4 py-4 rounded-xl mb-1 transition-colors flex items-center justify-between ${isSelected
+                                                    ? "bg-blue-50 border-2 border-blue-300"
+                                                    : "hover:bg-slate-50 border-2 border-transparent"
+                                                    }`}
+                                            >
+                                                <div>
+                                                    <p className="font-bold text-slate-900">
+                                                        मतपेटिका {booth.boothNumber}
+                                                    </p>
+                                                    <p className="text-sm text-slate-500">
+                                                        दर्ता मतदाता: {booth.totalRegisteredVoters}
+                                                    </p>
+                                                </div>
+                                                {isMixedBox && (
+                                                    <div
+                                                        className={`w-6 h-6 rounded border-2 flex items-center justify-center ${isSelected
                                                             ? "bg-blue-600 border-blue-600"
                                                             : "border-slate-300"
-                                                        }`}
-                                                >
-                                                    {isSelected && (
-                                                        <span className="text-white text-sm">✓</span>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </button>
-                                    );
-                                })}
+                                                            }`}
+                                                    >
+                                                        {isSelected && (
+                                                            <span className="text-white text-sm">✓</span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </button>
+                                        );
+                                    })
+                                )
+                            )}
 
                             {/* Done button for mixed-box multi-select */}
                             {activeSheet === "booth" &&
