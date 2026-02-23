@@ -1,0 +1,344 @@
+// ============================================================================
+// Nirwachan Live 2026 — Complete Database Schema
+// Nepal House of Representatives (Central) Election
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DISPUTED
+}
+
+enum ElectionType {
+  FPTP // प्रत्यक्ष (Direct)
+  PR   // समानुपातिक (Proportional Representation)
+}
+
+enum AgentRole {
+  FIELD_AGENT
+  ADMIN
+  SUPER_ADMIN
+}
+
+// ============================================================================
+// GEOGRAPHY: Province → District → Constituency → LocalLevel → Ward
+//            → PollingStation → PollingBooth
+// ============================================================================
+
+model Province {
+  id        String     @id @default(cuid())
+  name      String     @unique // e.g. "कोशी प्रदेश"
+  nameEn    String?    // e.g. "Koshi Province"
+  number    Int        @unique // 1-7
+  districts District[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("provinces")
+}
+
+model District {
+  id             String         @id @default(cuid())
+  name           String         // e.g. "इलाम"
+  nameEn         String?
+  provinceId     String
+  province       Province       @relation(fields: [provinceId], references: [id])
+  constituencies Constituency[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, provinceId])
+  @@map("districts")
+}
+
+model Constituency {
+  id              String       @id @default(cuid())
+  number          Int          // 1 or 2 (within district)
+  label           String       // e.g. "इलाम - 1"
+  labelEn         String?
+  districtId      String
+  district        District     @relation(fields: [districtId], references: [id])
+  localLevels     LocalLevel[]
+  candidates      Candidate[]
+  agents          Agent[]
+  fptpVoteRecords FPTPVoteRecord[]
+  prVoteRecords   PRVoteRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([number, districtId])
+  @@map("constituencies")
+}
+
+model LocalLevel {
+  id             String       @id @default(cuid())
+  name           String       // e.g. "सूर्योदय नगरपालिका"
+  type           String?      // "नगरपालिका", "गाउँपालिका", "उपमहानगरपालिका", etc.
+  constituencyId String
+  constituency   Constituency @relation(fields: [constituencyId], references: [id])
+  wards          Ward[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, constituencyId])
+  @@map("local_levels")
+}
+
+model Ward {
+  id              String          @id @default(cuid())
+  wardNumber      Int
+  localLevelId    String
+  localLevel      LocalLevel      @relation(fields: [localLevelId], references: [id])
+  pollingStations PollingStation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([wardNumber, localLevelId])
+  @@map("wards")
+}
+
+model PollingStation {
+  id            String         @id @default(cuid())
+  name          String         // e.g. "श्री जनता मा.वि. छाती तिजथला"
+  wardId        String
+  ward          Ward           @relation(fields: [wardId], references: [id])
+  pollingBooths PollingBooth[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("polling_stations")
+}
+
+model PollingBooth {
+  id                    String           @id @default(cuid())
+  boothNumber           String           // e.g. "क", "ख", or sequential number
+  totalRegisteredVoters Int              // *** CRITICAL: Total registered voters ***
+  pollingStationId      String
+  pollingStation        PollingStation   @relation(fields: [pollingStationId], references: [id])
+  voteBatchBooths       VoteBatchBooth[] // Links to vote batches (supports mixed-box)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([boothNumber, pollingStationId])
+  @@map("polling_booths")
+}
+
+// ============================================================================
+// ENTITIES: Candidate (FPTP), Party (PR), Agent (User)
+// ============================================================================
+
+model Candidate {
+  id               String              @id @default(cuid())
+  externalId       Int?                @unique // CandidateID from ECN data
+  name             String              // Nepali name
+  age              Int?
+  gender           String?
+  partyName        String              // Party name string
+  symbol           String?             // Symbol name in Nepali e.g. "सुर्य"
+  electionSymbolUrl String?            // URL to party/candidate symbol image
+  symbolImageFile  String?             // Local filename e.g. "नेकपा(एमाले).png"
+  qualification    String?
+  address          String?
+  constituencyId   String
+  constituency     Constituency        @relation(fields: [constituencyId], references: [id])
+  isPinned         Boolean             @default(false) // Pin top-5 major party candidates
+  displayOrder     Int                 @default(999)    // Sort order on tally screen
+  voteTallies      CandidateVoteTally[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("candidates")
+}
+
+model Party {
+  id               String           @id @default(cuid())
+  name             String           @unique // Full party name in Nepali
+  nameShort        String?          // Abbreviated name
+  electionSymbolUrl String?         // URL to party symbol image
+  symbolImageFile  String?          // Local filename
+  isDefault        Boolean          @default(false) // If using default party image
+  voteTallies      PartyVoteTally[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("parties")
+}
+
+model Agent {
+  id             String       @id @default(cuid())
+  name           String
+  phone          String       @unique
+  pinHash        String       // Hashed 4-digit PIN
+  role           AgentRole    @default(FIELD_AGENT)
+  constituencyId String?      // FIELD_AGENTs locked to a constituency
+  constituency   Constituency? @relation(fields: [constituencyId], references: [id])
+  isActive       Boolean      @default(true)
+
+  // Records submitted by this agent
+  fptpVoteRecords FPTPVoteRecord[]
+  prVoteRecords   PRVoteRecord[]
+
+  // Admin verification actions
+  fptpVerified    FPTPVoteRecord[] @relation("FPTPVerifier")
+  prVerified      PRVoteRecord[]   @relation("PRVerifier")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastLoginAt DateTime?
+
+  @@map("agents")
+}
+
+// ============================================================================
+// VOTE TRACKING: VoteBatch → VoteRecord → Tallies
+// ============================================================================
+
+/// A VoteBatch groups one or more booths together.
+/// "Single Booth" = 1 booth linked; "Mixed Box" = multiple booths linked.
+/// The total_registered_voters is dynamically summed from linked booths.
+model VoteBatch {
+  id              String           @id @default(cuid())
+  isMixedBox      Boolean          @default(false) // मतपेटिका मिसाएको
+  label           String?          // Human-readable label
+  voteBatchBooths VoteBatchBooth[] // Linked booths
+
+  // One VoteBatch may have one FPTP record AND/OR one PR record
+  fptpVoteRecord  FPTPVoteRecord?
+  prVoteRecord    PRVoteRecord?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("vote_batches")
+}
+
+/// Join table: VoteBatch ↔ PollingBooth (supports mixed-box grouping)
+model VoteBatchBooth {
+  id             String       @id @default(cuid())
+  voteBatchId    String
+  voteBatch      VoteBatch    @relation(fields: [voteBatchId], references: [id], onDelete: Cascade)
+  pollingBoothId String
+  pollingBooth   PollingBooth @relation(fields: [pollingBoothId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([voteBatchId, pollingBoothId])
+  @@map("vote_batch_booths")
+}
+
+/// FPTP (प्रत्यक्ष) Vote Record — one per VoteBatch
+model FPTPVoteRecord {
+  id                 String              @id @default(cuid())
+  voteBatchId        String              @unique
+  voteBatch          VoteBatch           @relation(fields: [voteBatchId], references: [id], onDelete: Cascade)
+  constituencyId     String
+  constituency       Constituency        @relation(fields: [constituencyId], references: [id])
+
+  totalCastVotes     Int                 // खसेको मत
+  invalidVotes       Int                 // बदर मत
+  muchulkaImageUrl   String?             // Uploaded tally-sheet photo URL
+  muchulkaImageKey   String?             // S3/Cloudinary key
+
+  verificationStatus VerificationStatus  @default(PENDING)
+  disputeNote        String?             // Agent's dispute note (विवादित)
+  verifiedById       String?
+  verifiedBy         Agent?              @relation("FPTPVerifier", fields: [verifiedById], references: [id])
+  verifiedAt         DateTime?
+
+  submittedById      String
+  submittedBy        Agent               @relation(fields: [submittedById], references: [id])
+  submittedAt        DateTime            @default(now())
+
+  // Offline sync tracking
+  isOfflineSubmission Boolean            @default(false)
+  syncedAt            DateTime?
+
+  candidateVoteTallies CandidateVoteTally[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("fptp_vote_records")
+}
+
+/// PR (समानुपातिक) Vote Record — one per VoteBatch
+model PRVoteRecord {
+  id                 String              @id @default(cuid())
+  voteBatchId        String              @unique
+  voteBatch          VoteBatch           @relation(fields: [voteBatchId], references: [id], onDelete: Cascade)
+  constituencyId     String
+  constituency       Constituency        @relation(fields: [constituencyId], references: [id])
+
+  totalCastVotes     Int                 // खसेको मत
+  invalidVotes       Int                 // बदर मत
+  muchulkaImageUrl   String?
+  muchulkaImageKey   String?
+
+  verificationStatus VerificationStatus  @default(PENDING)
+  disputeNote        String?
+  verifiedById       String?
+  verifiedBy         Agent?              @relation("PRVerifier", fields: [verifiedById], references: [id])
+  verifiedAt         DateTime?
+
+  submittedById      String
+  submittedBy        Agent               @relation(fields: [submittedById], references: [id])
+  submittedAt        DateTime            @default(now())
+
+  isOfflineSubmission Boolean            @default(false)
+  syncedAt            DateTime?
+
+  partyVoteTallies PartyVoteTally[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("pr_vote_records")
+}
+
+/// Individual candidate vote tally within an FPTP record
+model CandidateVoteTally {
+  id               String         @id @default(cuid())
+  fptpVoteRecordId String
+  fptpVoteRecord   FPTPVoteRecord @relation(fields: [fptpVoteRecordId], references: [id], onDelete: Cascade)
+  candidateId      String
+  candidate        Candidate      @relation(fields: [candidateId], references: [id])
+  votes            Int            @default(0)
+
+  @@unique([fptpVoteRecordId, candidateId])
+  @@map("candidate_vote_tallies")
+}
+
+/// Individual party vote tally within a PR record
+model PartyVoteTally {
+  id             String       @id @default(cuid())
+  prVoteRecordId String
+  prVoteRecord   PRVoteRecord @relation(fields: [prVoteRecordId], references: [id], onDelete: Cascade)
+  partyId        String
+  party          Party        @relation(fields: [partyId], references: [id])
+  votes          Int          @default(0)
+
+  @@unique([prVoteRecordId, partyId])
+  @@map("party_vote_tallies")
+}
