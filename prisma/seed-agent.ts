@@ -23,7 +23,9 @@ async function seedAgent() {
     // Create demo agent
     const agent = await prisma.agent.upsert({
         where: { phone: "9841000001" },
-        update: {},
+        update: {
+            constituencyId: constituency.id, // Update to new UUID after re-seed
+        },
         create: {
             name: "राम बहादुर थापा",
             phone: "9841000001",
