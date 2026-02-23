@@ -161,12 +161,20 @@ export const useElectionStore = create<ElectionStore>((set, get) => ({
             totalRegisteredVoters: totalVoters,
         }),
     toggleMixedBox: () =>
-        set((state) => ({
-            isMixedBox: !state.isMixedBox,
-            selectedBoothIds: [],
-            selectedBoothLabels: [],
-            totalRegisteredVoters: 0,
-        })),
+        set((state) => {
+            const goingToSingle = state.isMixedBox; // currently multi, going to single
+            // If going from multi->single with multiple booths, keep only the first
+            if (goingToSingle && state.selectedBoothIds.length > 1) {
+                return {
+                    isMixedBox: false,
+                    selectedBoothIds: [state.selectedBoothIds[0]],
+                    selectedBoothLabels: [state.selectedBoothLabels[0]],
+                    // Voter count will be recalculated when booth list updates
+                };
+            }
+            // Otherwise just toggle the flag, preserve everything
+            return { isMixedBox: !state.isMixedBox };
+        }),
 
     // ---- Tally Data ----
     setTotalCastVotes: (n) => set({ totalCastVotes: n }),
