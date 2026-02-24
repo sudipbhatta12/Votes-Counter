@@ -78,16 +78,16 @@ export default function LoginStep() {
                             htmlFor="phone"
                             className="block text-sm font-semibold text-slate-700 mb-2"
                         >
-                            फोन नम्बर
+                            फोन नम्बर / Login ID
                         </label>
                         <input
                             id="phone"
                             type="tel"
                             inputMode="numeric"
-                            pattern="[0-9]{10}"
-                            placeholder="98XXXXXXXX"
+                            pattern="[0-9]{4,15}"
+                            placeholder="Agent ID or Phone"
                             value={phone}
-                            onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                            onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 15))}
                             className="touch-input w-full text-center text-xl tracking-widest"
                             required
                             autoComplete="tel"
@@ -120,7 +120,7 @@ export default function LoginStep() {
                     <button
                         type="submit"
                         className="touch-btn touch-btn-primary w-full mt-2"
-                        disabled={phone.length < 10 || pin.length < 4 || loading}
+                        disabled={phone.length < 4 || pin.length < 4 || loading}
                     >
                         {loading ? "प्रमाणित गर्दै..." : "लगइन गर्नुहोस्"}
                     </button>
@@ -128,7 +128,7 @@ export default function LoginStep() {
 
                 {/* Demo credentials hint */}
                 <p className="text-center text-xs text-slate-400 mt-8">
-                    Demo: 9841000001 / 1234
+                    Use your assigned Login ID & PIN
                 </p>
             </form>
         </div>
