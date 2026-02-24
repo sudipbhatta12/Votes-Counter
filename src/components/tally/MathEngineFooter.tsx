@@ -1,13 +1,17 @@
 "use client";
 
-import { useElectionStore } from "@/store/electionStore";
-
 interface MathEngineFooterProps {
     totalCastVotes: number;
     invalidVotes: number;
     sumCandidateVotes: number;
     isBalanced: boolean;
     difference: number;
+    canProceed?: boolean;
+    onProceed?: () => void;
+    activeTab?: "fptp" | "pr";
+    otherTabLabel?: string;
+    otherTabBalanced?: boolean;
+    onSwitchTab?: () => void;
 }
 
 export default function MathEngineFooter({
@@ -16,16 +20,19 @@ export default function MathEngineFooter({
     sumCandidateVotes,
     isBalanced,
     difference,
+    canProceed,
+    onProceed,
+    activeTab,
+    otherTabLabel,
+    otherTabBalanced,
+    onSwitchTab,
 }: MathEngineFooterProps) {
-    const { nextStep } = useElectionStore();
     const validVotes = totalCastVotes - invalidVotes;
     const hasInput = totalCastVotes > 0;
 
     const handleProceed = () => {
-        if (navigator.vibrate) {
-            navigator.vibrate([50, 30, 50]);
-        }
-        nextStep();
+        if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
+        onProceed?.();
     };
 
     const footerClass = isBalanced
@@ -81,14 +88,30 @@ export default function MathEngineFooter({
                 </div>
             </div>
 
-            {/* Proceed Button */}
+            {/* Tab-aware action buttons */}
             {isBalanced ? (
-                <button
-                    onClick={handleProceed}
-                    className="touch-btn touch-btn-success w-full text-lg"
-                >
-                    अगाडि बढ्नुहोस् (Proceed)
-                </button>
+                <div className="space-y-2">
+                    {/* If this tab is balanced but other tab hasn't been filled, suggest switching */}
+                    {onSwitchTab && otherTabLabel && !otherTabBalanced && (
+                        <button
+                            onClick={onSwitchTab}
+                            className="w-full py-2.5 rounded-xl text-sm font-bold border-2 border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100 transition-colors"
+                        >
+                            {otherTabLabel} भर्नुहोस् →
+                        </button>
+                    )}
+                    {/* Proceed button — always available if at least one tab is balanced */}
+                    <button
+                        onClick={handleProceed}
+                        disabled={!canProceed}
+                        className={`touch-btn w-full text-lg ${canProceed
+                            ? "touch-btn-success"
+                            : "touch-btn-primary opacity-40 cursor-not-allowed"
+                            }`}
+                    >
+                        अगाडि बढ्नुहोस् (Proceed)
+                    </button>
+                </div>
             ) : (
                 <button
                     disabled

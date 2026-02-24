@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ElectionType, WizardStep, WIZARD_STEPS, Candidate, Party } from "@/lib/types";
+import type { WizardStep, Candidate, Party } from "@/lib/types";
 
 interface ElectionStore {
     // ---- Wizard Navigation ----
@@ -23,10 +23,6 @@ interface ElectionStore {
         constituencyLabel: string;
     }) => void;
 
-    // ---- Election Type ----
-    electionType: ElectionType | null;
-    setElectionType: (type: ElectionType) => void;
-
     // ---- Location Selection ----
     selectedWardId: string | null;
     selectedWardLabel: string | null;
@@ -41,19 +37,31 @@ interface ElectionStore {
     setBooths: (ids: string[], labels: string[], totalVoters: number) => void;
     toggleMixedBox: () => void;
 
-    // ---- Tally Data ----
-    totalCastVotes: number;
-    invalidVotes: number;
+    // ---- FPTP Tally Data ----
+    fptpTotalCast: number;
+    fptpInvalid: number;
     candidateVotes: Record<string, number>;
-    partyVotes: Record<string, number>;
-    setTotalCastVotes: (n: number) => void;
-    setInvalidVotes: (n: number) => void;
+    setFptpTotalCast: (n: number) => void;
+    setFptpInvalid: (n: number) => void;
     setCandidateVote: (candidateId: string, votes: number) => void;
-    setPartyVote: (partyId: string, votes: number) => void;
+    fptpSubmitted: boolean;
+    setFptpSubmitted: (v: boolean) => void;
 
-    // ---- Upload ----
-    muchulkaImageBase64: string | null;
-    setMuchulkaImage: (base64: string | null) => void;
+    // ---- PR Tally Data ----
+    prTotalCast: number;
+    prInvalid: number;
+    partyVotes: Record<string, number>;
+    setPrTotalCast: (n: number) => void;
+    setPrInvalid: (n: number) => void;
+    setPartyVote: (partyId: string, votes: number) => void;
+    prSubmitted: boolean;
+    setPrSubmitted: (v: boolean) => void;
+
+    // ---- Upload (two photos) ----
+    fptpMuchulkaBase64: string | null;
+    prMuchulkaBase64: string | null;
+    setFptpMuchulka: (base64: string | null) => void;
+    setPrMuchulka: (base64: string | null) => void;
 
     // ---- Dispute ----
     isDisputed: boolean;
@@ -73,7 +81,6 @@ interface ElectionStore {
 
 const STEPS: WizardStep[] = [
     "login",
-    "select-type",
     "select-location",
     "tally",
     "upload",
@@ -83,7 +90,6 @@ const STEPS: WizardStep[] = [
 const initialWizardState = {
     currentStep: "login" as WizardStep,
     direction: 1 as 1 | -1,
-    electionType: null as ElectionType | null,
     selectedWardId: null,
     selectedWardLabel: null,
     selectedStationId: null,
@@ -92,11 +98,20 @@ const initialWizardState = {
     selectedBoothLabels: [] as string[],
     isMixedBox: false,
     totalRegisteredVoters: 0,
-    totalCastVotes: 0,
-    invalidVotes: 0,
+    // FPTP
+    fptpTotalCast: 0,
+    fptpInvalid: 0,
     candidateVotes: {} as Record<string, number>,
+    fptpSubmitted: false,
+    // PR
+    prTotalCast: 0,
+    prInvalid: 0,
     partyVotes: {} as Record<string, number>,
-    muchulkaImageBase64: null as string | null,
+    prSubmitted: false,
+    // Upload
+    fptpMuchulkaBase64: null as string | null,
+    prMuchulkaBase64: null as string | null,
+    // Dispute
     isDisputed: false,
     disputeNote: "",
 };
@@ -134,9 +149,6 @@ export const useElectionStore = create<ElectionStore>((set, get) => ({
     // ---- Auth ----
     setAuth: (data) => set(data),
 
-    // ---- Election Type ----
-    setElectionType: (type) => set({ electionType: type }),
-
     // ---- Location Selection ----
     setWard: (id, label) =>
         set({
@@ -162,34 +174,38 @@ export const useElectionStore = create<ElectionStore>((set, get) => ({
         }),
     toggleMixedBox: () =>
         set((state) => {
-            const goingToSingle = state.isMixedBox; // currently multi, going to single
-            // If going from multi->single with multiple booths, keep only the first
+            const goingToSingle = state.isMixedBox;
             if (goingToSingle && state.selectedBoothIds.length > 1) {
                 return {
                     isMixedBox: false,
                     selectedBoothIds: [state.selectedBoothIds[0]],
                     selectedBoothLabels: [state.selectedBoothLabels[0]],
-                    // Voter count will be recalculated when booth list updates
                 };
             }
-            // Otherwise just toggle the flag, preserve everything
             return { isMixedBox: !state.isMixedBox };
         }),
 
-    // ---- Tally Data ----
-    setTotalCastVotes: (n) => set({ totalCastVotes: n }),
-    setInvalidVotes: (n) => set({ invalidVotes: n }),
+    // ---- FPTP Tally ----
+    setFptpTotalCast: (n) => set({ fptpTotalCast: n }),
+    setFptpInvalid: (n) => set({ fptpInvalid: n }),
     setCandidateVote: (candidateId, votes) =>
         set((state) => ({
             candidateVotes: { ...state.candidateVotes, [candidateId]: votes },
         })),
+    setFptpSubmitted: (v) => set({ fptpSubmitted: v }),
+
+    // ---- PR Tally ----
+    setPrTotalCast: (n) => set({ prTotalCast: n }),
+    setPrInvalid: (n) => set({ prInvalid: n }),
     setPartyVote: (partyId, votes) =>
         set((state) => ({
             partyVotes: { ...state.partyVotes, [partyId]: votes },
         })),
+    setPrSubmitted: (v) => set({ prSubmitted: v }),
 
     // ---- Upload ----
-    setMuchulkaImage: (base64) => set({ muchulkaImageBase64: base64 }),
+    setFptpMuchulka: (base64) => set({ fptpMuchulkaBase64: base64 }),
+    setPrMuchulka: (base64) => set({ prMuchulkaBase64: base64 }),
 
     // ---- Dispute ----
     setDispute: (note) => set({ isDisputed: !!note, disputeNote: note }),

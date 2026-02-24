@@ -104,14 +104,19 @@ export type VerificationStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISPUTED
 
 export interface VoteSubmission {
     id?: string;
-    electionType: ElectionType;
     constituencyId: string;
     voteBatch: VoteBatch;
-    totalCastVotes: number;
-    invalidVotes: number;
+    // FPTP data (optional — can submit PR only)
+    fptpTotalCastVotes?: number;
+    fptpInvalidVotes?: number;
     candidateVoteTallies?: CandidateVoteTally[];
+    fptpMuchulkaImageBase64?: string;
+    // PR data (optional — can submit FPTP only)
+    prTotalCastVotes?: number;
+    prInvalidVotes?: number;
     partyVoteTallies?: PartyVoteTally[];
-    muchulkaImageBase64?: string;
+    prMuchulkaImageBase64?: string;
+    // Common
     disputeNote?: string;
     isOffline: boolean;
     submittedAt: string; // ISO timestamp
@@ -120,7 +125,6 @@ export interface VoteSubmission {
 // ---- Wizard State ----
 export type WizardStep =
     | "login"
-    | "select-type"
     | "select-location"
     | "tally"
     | "upload"
@@ -128,7 +132,6 @@ export type WizardStep =
 
 export const WIZARD_STEPS: WizardStep[] = [
     "login",
-    "select-type",
     "select-location",
     "tally",
     "upload",
@@ -137,19 +140,22 @@ export const WIZARD_STEPS: WizardStep[] = [
 
 export interface WizardState {
     currentStep: WizardStep;
-    electionType: ElectionType | null;
     // Location
     selectedWardId: string | null;
     selectedStationId: string | null;
     selectedBoothIds: string[];
     isMixedBox: boolean;
-    // Tally
-    totalCastVotes: number;
-    invalidVotes: number;
+    // FPTP Tally
+    fptpTotalCast: number;
+    fptpInvalid: number;
     candidateVotes: Record<string, number>;
+    // PR Tally
+    prTotalCast: number;
+    prInvalid: number;
     partyVotes: Record<string, number>;
     // Upload
-    muchulkaImageBase64: string | null;
+    fptpMuchulkaBase64: string | null;
+    prMuchulkaBase64: string | null;
     // Auth
     agentId: string | null;
     agentName: string | null;

@@ -93,7 +93,7 @@ export default function MuchulkaCapture() {
         // The actual files would be uploaded via FormData in production
         const store = useElectionStore.getState();
         if (photos.length > 0) {
-            store.setMuchulkaImage(`${photos.length} photo(s) attached`);
+            store.setFptpMuchulka(`${photos.length} photo(s) attached`);
         }
         nextStep();
     };

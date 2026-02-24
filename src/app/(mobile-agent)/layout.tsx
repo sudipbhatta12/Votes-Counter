@@ -3,10 +3,8 @@
 import { useEffect } from "react";
 import WizardShell from "@/components/wizard/WizardShell";
 import OfflineBanner from "@/components/ui/OfflineBanner";
-import { useElectionStore } from "@/store/electionStore";
 import { initBackgroundSync } from "@/lib/syncEngine";
 import LoginStep from "./login/page";
-import SelectTypeStep from "./select-type/page";
 import SelectLocationStep from "./select-location/page";
 import TallyStep from "./tally/page";
 import UploadStep from "./upload/page";
@@ -43,7 +41,6 @@ export default function MobileAgentLayout({
                 <WizardShell>
                     {{
                         login: <LoginStep />,
-                        "select-type": <SelectTypeStep />,
                         "select-location": <SelectLocationStep />,
                         tally: <TallyStep />,
                         upload: <UploadStep />,

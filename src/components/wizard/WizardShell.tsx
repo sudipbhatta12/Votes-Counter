@@ -6,7 +6,6 @@ import type { WizardStep } from "@/lib/types";
 
 const STEP_LABELS: Record<WizardStep, string> = {
     login: "लगइन",
-    "select-type": "निर्वाचन प्रकार",
     "select-location": "मतदान स्थल",
     tally: "मत गणना",
     upload: "मुचुल्का",
@@ -15,7 +14,6 @@ const STEP_LABELS: Record<WizardStep, string> = {
 
 const STEP_ORDER: WizardStep[] = [
     "login",
-    "select-type",
     "select-location",
     "tally",
     "upload",
@@ -59,10 +57,10 @@ export default function WizardShell({ children }: WizardShellProps) {
                             <div
                                 key={step}
                                 className={`flex-1 h-1.5 rounded-full transition-colors duration-300 ${idx < currentIndex
+                                    ? "bg-blue-600"
+                                    : idx === currentIndex - 1
                                         ? "bg-blue-600"
-                                        : idx === currentIndex - 1
-                                            ? "bg-blue-600"
-                                            : "bg-slate-200"
+                                        : "bg-slate-200"
                                     }`}
                             />
                         ))}
