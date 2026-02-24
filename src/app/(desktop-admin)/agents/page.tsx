@@ -18,23 +18,54 @@ interface AgentData {
     createdAt: string;
 }
 
-const PROVINCES = [
-    { number: 1, name: "कोशी प्रदेश" },
-    { number: 2, name: "मधेश प्रदेश" },
-    { number: 3, name: "बागमती प्रदेश" },
-    { number: 4, name: "गण्डकी प्रदेश" },
-    { number: 5, name: "लुम्बिनी प्रदेश" },
-    { number: 6, name: "कर्णाली प्रदेश" },
-    { number: 7, name: "सुदूरपश्चिम प्रदेश" },
-];
+interface FilterOption { id: string; name: string; number?: number; label?: string; }
 
 export default function AgentsPage() {
     const [agents, setAgents] = useState<AgentData[]>([]);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
     const [search, setSearch] = useState("");
-    const [provinceFilter, setProvinceFilter] = useState<number | null>(null);
     const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+    // Cascading filters
+    const [provinces, setProvinces] = useState<FilterOption[]>([]);
+    const [districts, setDistricts] = useState<FilterOption[]>([]);
+    const [constituencies, setConstituencies] = useState<FilterOption[]>([]);
+    const [selectedProvince, setSelectedProvince] = useState("");
+    const [selectedDistrict, setSelectedDistrict] = useState("");
+    const [selectedConstituency, setSelectedConstituency] = useState("");
+
+    // Load provinces on mount
+    useEffect(() => {
+        fetch("/api/data/filters")
+            .then((r) => r.json())
+            .then((d) => setProvinces(d.provinces || []))
+            .catch(() => { });
+    }, []);
+
+    // Load districts when province changes
+    useEffect(() => {
+        setSelectedDistrict("");
+        setSelectedConstituency("");
+        setDistricts([]);
+        setConstituencies([]);
+        if (!selectedProvince) return;
+        fetch(`/api/data/filters?provinceId=${selectedProvince}`)
+            .then((r) => r.json())
+            .then((d) => setDistricts(d.districts || []))
+            .catch(() => { });
+    }, [selectedProvince]);
+
+    // Load constituencies when district changes
+    useEffect(() => {
+        setSelectedConstituency("");
+        setConstituencies([]);
+        if (!selectedDistrict) return;
+        fetch(`/api/data/filters?districtId=${selectedDistrict}`)
+            .then((r) => r.json())
+            .then((d) => setConstituencies(d.constituencies || []))
+            .catch(() => { });
+    }, [selectedDistrict]);
 
     const fetchAgents = useCallback(async () => {
         try {
@@ -121,9 +152,11 @@ export default function AgentsPage() {
         URL.revokeObjectURL(url);
     };
 
-    // Filter agents
+    // Cascading filter logic
     const filteredAgents = agents.filter((a) => {
-        if (provinceFilter && a.provinceNumber !== provinceFilter) return false;
+        if (selectedConstituency && a.constituencyId !== selectedConstituency) return false;
+        if (selectedDistrict && a.districtName !== districts.find((d) => d.id === selectedDistrict)?.name) return false;
+        if (selectedProvince && a.provinceNumber !== provinces.find((p) => p.id === selectedProvince)?.number) return false;
         if (search) {
             const q = search.toLowerCase();
             return (
@@ -199,9 +232,9 @@ export default function AgentsPage() {
                 <StatCard label="Max Capacity" value={`${agents.length}/825`} color="slate" />
             </div>
 
-            {/* Filters */}
-            <div className="flex items-center gap-4">
-                <div className="flex-1">
+            {/* Cascading Filters */}
+            <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex-1 min-w-[200px]">
                     <input
                         type="text"
                         placeholder="Search by name, phone, constituency..."
@@ -211,13 +244,35 @@ export default function AgentsPage() {
                     />
                 </div>
                 <select
-                    value={provinceFilter || ""}
-                    onChange={(e) => setProvinceFilter(e.target.value ? Number(e.target.value) : null)}
-                    className="px-4 py-2.5 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={selectedProvince}
+                    onChange={(e) => setSelectedProvince(e.target.value)}
+                    className="px-3 py-2.5 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-[160px]"
                 >
                     <option value="">All Provinces</option>
-                    {PROVINCES.map((p) => (
-                        <option key={p.number} value={p.number}>{p.name}</option>
+                    {provinces.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                </select>
+                <select
+                    value={selectedDistrict}
+                    onChange={(e) => setSelectedDistrict(e.target.value)}
+                    disabled={!selectedProvince}
+                    className="px-3 py-2.5 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-[160px] disabled:opacity-40"
+                >
+                    <option value="">All Districts</option>
+                    {districts.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                </select>
+                <select
+                    value={selectedConstituency}
+                    onChange={(e) => setSelectedConstituency(e.target.value)}
+                    disabled={!selectedDistrict}
+                    className="px-3 py-2.5 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-[160px] disabled:opacity-40"
+                >
+                    <option value="">All Constituencies</option>
+                    {constituencies.map((c) => (
+                        <option key={c.id} value={c.id}>{c.label}</option>
                     ))}
                 </select>
             </div>
@@ -293,7 +348,7 @@ export default function AgentsPage() {
                                     ))}
                                     {/* Add Agent row */}
                                     {group.agents.filter((a) => a.isActive).length < 5 && (
-                                        <tr key={`add-${key}`} className="border-b border-slate-200 bg-slate-25">
+                                        <tr key={`add-${key}`} className="border-b border-slate-200">
                                             <td colSpan={7} className="px-4 py-2">
                                                 <button
                                                     onClick={() => handleAddAgent(key)}
