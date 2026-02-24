@@ -1,0 +1,341 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+
+interface AgentData {
+    id: string;
+    name: string;
+    phone: string;
+    pin: string;
+    role: string;
+    isActive: boolean;
+    constituencyId: string | null;
+    constituencyLabel: string;
+    districtName: string;
+    provinceName: string;
+    provinceNumber: number;
+    lastLoginAt: string | null;
+    createdAt: string;
+}
+
+const PROVINCES = [
+    { number: 1, name: "कोशी प्रदेश" },
+    { number: 2, name: "मधेश प्रदेश" },
+    { number: 3, name: "बागमती प्रदेश" },
+    { number: 4, name: "गण्डकी प्रदेश" },
+    { number: 5, name: "लुम्बिनी प्रदेश" },
+    { number: 6, name: "कर्णाली प्रदेश" },
+    { number: 7, name: "सुदूरपश्चिम प्रदेश" },
+];
+
+export default function AgentsPage() {
+    const [agents, setAgents] = useState<AgentData[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [generating, setGenerating] = useState(false);
+    const [search, setSearch] = useState("");
+    const [provinceFilter, setProvinceFilter] = useState<number | null>(null);
+    const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+    const fetchAgents = useCallback(async () => {
+        try {
+            const res = await fetch("/api/agents");
+            const data = await res.json();
+            if (Array.isArray(data)) setAgents(data);
+        } catch {
+            console.warn("Failed to fetch agents");
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => { fetchAgents(); }, [fetchAgents]);
+
+    const handleGenerate = async () => {
+        setGenerating(true);
+        setMessage(null);
+        try {
+            const res = await fetch("/api/agents/generate", { method: "POST" });
+            const data = await res.json();
+            if (data.success) {
+                setMessage({ type: "success", text: `✅ ${data.total} agents created! ${data.skipped} skipped.` });
+                fetchAgents();
+            } else {
+                setMessage({ type: "error", text: `❌ ${data.message}` });
+            }
+        } catch {
+            setMessage({ type: "error", text: "❌ Server error" });
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    const handleAddAgent = async (constituencyId: string) => {
+        try {
+            const res = await fetch("/api/agents", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ constituencyId }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setMessage({ type: "success", text: `✅ Agent added: ${data.agent.phone}` });
+                fetchAgents();
+            } else {
+                setMessage({ type: "error", text: `❌ ${data.message}` });
+            }
+        } catch {
+            setMessage({ type: "error", text: "❌ Failed to add agent" });
+        }
+    };
+
+    const handleDeactivate = async (agentId: string) => {
+        try {
+            const res = await fetch("/api/agents", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ agentId }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setMessage({ type: "success", text: "Agent deactivated" });
+                fetchAgents();
+            }
+        } catch {
+            setMessage({ type: "error", text: "❌ Failed to deactivate" });
+        }
+    };
+
+    const handleExportCSV = () => {
+        const csvRows = [
+            "Phone,PIN,Name,Constituency,District,Province,Status",
+            ...filteredAgents.map((a) =>
+                `${a.phone},${a.pin},"${a.name}","${a.constituencyLabel}","${a.districtName}","${a.provinceName}",${a.isActive ? "Active" : "Inactive"}`
+            ),
+        ];
+        const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `agents_credentials_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    // Filter agents
+    const filteredAgents = agents.filter((a) => {
+        if (provinceFilter && a.provinceNumber !== provinceFilter) return false;
+        if (search) {
+            const q = search.toLowerCase();
+            return (
+                a.name.toLowerCase().includes(q) ||
+                a.phone.includes(q) ||
+                a.constituencyLabel.toLowerCase().includes(q) ||
+                a.districtName.toLowerCase().includes(q)
+            );
+        }
+        return true;
+    });
+
+    // Group by constituency
+    const grouped = filteredAgents.reduce((acc, agent) => {
+        const key = agent.constituencyId || "unassigned";
+        if (!acc[key]) acc[key] = { label: agent.constituencyLabel, agents: [] };
+        acc[key].agents.push(agent);
+        return acc;
+    }, {} as Record<string, { label: string; agents: AgentData[] }>);
+
+    const activeCount = agents.filter((a) => a.isActive).length;
+    const constituencyCount = new Set(agents.filter((a) => a.constituencyId).map((a) => a.constituencyId)).size;
+
+    return (
+        <div className="space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-900">Agent Management</h1>
+                    <p className="text-sm text-slate-500 mt-1">
+                        Generate and manage field agent credentials
+                    </p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={handleExportCSV}
+                        disabled={agents.length === 0}
+                        className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+                    >
+                        📥 Export CSV
+                    </button>
+                    <a
+                        href="/agents/print"
+                        className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                    >
+                        🖨️ Print Cards
+                    </a>
+                    <button
+                        onClick={handleGenerate}
+                        disabled={generating}
+                        className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-bold shadow hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 transition-all"
+                    >
+                        {generating ? "Generating..." : "⚡ Generate All 165 Agents"}
+                    </button>
+                </div>
+            </div>
+
+            {/* Message banner */}
+            {message && (
+                <div className={`p-4 rounded-xl text-sm font-medium ${message.type === "success"
+                        ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                        : "bg-red-50 text-red-800 border border-red-200"
+                    }`}>
+                    {message.text}
+                </div>
+            )}
+
+            {/* Stats */}
+            <div className="grid grid-cols-4 gap-4">
+                <StatCard label="Total Agents" value={agents.length} color="blue" />
+                <StatCard label="Active" value={activeCount} color="emerald" />
+                <StatCard label="Constituencies Covered" value={constituencyCount} sub="/165" color="purple" />
+                <StatCard label="Max Capacity" value={`${agents.length}/825`} color="slate" />
+            </div>
+
+            {/* Filters */}
+            <div className="flex items-center gap-4">
+                <div className="flex-1">
+                    <input
+                        type="text"
+                        placeholder="Search by name, phone, constituency..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                </div>
+                <select
+                    value={provinceFilter || ""}
+                    onChange={(e) => setProvinceFilter(e.target.value ? Number(e.target.value) : null)}
+                    className="px-4 py-2.5 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                    <option value="">All Provinces</option>
+                    {PROVINCES.map((p) => (
+                        <option key={p.number} value={p.number}>{p.name}</option>
+                    ))}
+                </select>
+            </div>
+
+            {/* Agent Table */}
+            {loading ? (
+                <div className="text-center py-20 text-slate-400">Loading agents...</div>
+            ) : agents.length === 0 ? (
+                <div className="text-center py-20">
+                    <p className="text-slate-400 text-lg mb-4">No agents yet</p>
+                    <p className="text-slate-400 text-sm mb-6">
+                        Click &quot;Generate All 165 Agents&quot; to create agents for all constituencies
+                    </p>
+                </div>
+            ) : (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200">
+                                <th className="px-4 py-3 text-left font-bold text-slate-600">#</th>
+                                <th className="px-4 py-3 text-left font-bold text-slate-600">Constituency</th>
+                                <th className="px-4 py-3 text-left font-bold text-slate-600">Agent Name</th>
+                                <th className="px-4 py-3 text-left font-bold text-slate-600">Phone</th>
+                                <th className="px-4 py-3 text-left font-bold text-slate-600">PIN</th>
+                                <th className="px-4 py-3 text-center font-bold text-slate-600">Status</th>
+                                <th className="px-4 py-3 text-center font-bold text-slate-600">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {Object.entries(grouped).map(([key, group], gi) => (
+                                <>
+                                    {group.agents.map((agent, ai) => (
+                                        <tr
+                                            key={agent.id}
+                                            className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${!agent.isActive ? "opacity-50" : ""
+                                                }`}
+                                        >
+                                            <td className="px-4 py-3 text-slate-400 font-mono text-xs">
+                                                {gi + 1}.{ai + 1}
+                                            </td>
+                                            <td className="px-4 py-3 font-medium text-slate-900">
+                                                {agent.constituencyLabel}
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-700">{agent.name}</td>
+                                            <td className="px-4 py-3 font-mono font-bold text-blue-700">
+                                                {agent.phone}
+                                            </td>
+                                            <td className="px-4 py-3 font-mono font-bold text-purple-700">
+                                                {agent.pin}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${agent.isActive
+                                                        ? "bg-emerald-100 text-emerald-700"
+                                                        : "bg-red-100 text-red-700"
+                                                    }`}>
+                                                    {agent.isActive ? "Active" : "Inactive"}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                <div className="flex items-center justify-center gap-2">
+                                                    {agent.isActive && (
+                                                        <button
+                                                            onClick={() => handleDeactivate(agent.id)}
+                                                            className="text-xs text-red-500 hover:text-red-700 font-medium"
+                                                            title="Deactivate"
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {/* Add Agent row */}
+                                    {group.agents.filter((a) => a.isActive).length < 5 && (
+                                        <tr key={`add-${key}`} className="border-b border-slate-200 bg-slate-25">
+                                            <td colSpan={7} className="px-4 py-2">
+                                                <button
+                                                    onClick={() => handleAddAgent(key)}
+                                                    className="text-xs text-blue-600 hover:text-blue-800 font-semibold"
+                                                >
+                                                    + Add Agent to {group.label}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            <p className="text-xs text-slate-400 text-center">
+                Showing {filteredAgents.length} of {agents.length} agents
+            </p>
+        </div>
+    );
+}
+
+function StatCard({ label, value, sub, color }: {
+    label: string;
+    value: string | number;
+    sub?: string;
+    color: string;
+}) {
+    const colorMap: Record<string, string> = {
+        blue: "bg-blue-50 border-blue-200 text-blue-700",
+        emerald: "bg-emerald-50 border-emerald-200 text-emerald-700",
+        purple: "bg-purple-50 border-purple-200 text-purple-700",
+        slate: "bg-slate-50 border-slate-200 text-slate-700",
+    };
+    return (
+        <div className={`p-4 rounded-xl border ${colorMap[color] || colorMap.slate}`}>
+            <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{label}</p>
+            <p className="text-2xl font-bold mt-1">
+                {value}{sub && <span className="text-sm font-normal opacity-50">{sub}</span>}
+            </p>
+        </div>
+    );
+}
